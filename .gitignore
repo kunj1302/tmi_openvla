@@ -146,8 +146,14 @@ dmypy.json
 
 # Caches and Datasets
 cache/
+.cache/
 data/
 
 # Rollout videos and wandb logs
 rollouts/
+experiments/logs/
 wandb/
+
+# LIBERO
+# 1. Add it as a git submodule: git submodule add https://github.com/Lifelong-Robot-Learning/LIBERO.git
+LIBERO/
