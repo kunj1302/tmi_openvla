@@ -10,16 +10,17 @@ This guide covers setting up and running OpenVLA LIBERO evaluation on a cluster 
 - Python 3.10 available via modules
 - Git installed
 
-## Step 1: Clone Repositories
+## Step 1: Clone Repository
+
+Clone your customized OpenVLA repo (which already includes LIBERO as a submodule):
 
 ```bash
-# Clone OpenVLA repository
-git clone https://github.com/openvla/openvla.git
-cd openvla
-
-# Clone LIBERO repository (inside openvla directory)
-git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git
+git clone --recurse-submodules git@github.com:kunj1302/tmi_openvla.git
+cd tmi_openvla
 ```
+
+> If you already cloned without `--recurse-submodules`, run  
+> `git submodule update --init --recursive`.
 
 ## Step 2: Request Compute Node
 
@@ -37,8 +38,8 @@ Adjust GPU type and memory based on your cluster's available resources.
 # Load Python 3.10 module
 module load Python3/3.10.14
 
-# Navigate to openvla directory (adjust path as needed)
-cd openvla
+# Navigate to repo directory (adjust path as needed)
+cd tmi_openvla
 
 # Create virtual environment
 python3 -m venv venv
@@ -125,7 +126,7 @@ EOF
 
 ```bash
 # Activate environment
-cd openvla  # Navigate to your openvla directory
+cd tmi_openvla  # Navigate to repo
 source venv/bin/activate
 
 # Set environment variables
@@ -200,15 +201,22 @@ Results are saved to:
 
 ```bash
 # Complete setup and run (after getting compute node)
-# 1. Clone repositories (if not already done)
-git clone https://github.com/openvla/openvla.git
-cd openvla
-git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git
 
-# 2. Setup and run
+# Clone (if not already)
+git clone --recurse-submodules git@github.com:kunj1302/tmi_openvla.git
+cd tmi_openvla
+
+# Setup and run
 module load Python3/3.10.14
 module load cuda/12.1.1
+python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install -e .
+cd LIBERO && pip install -e . && cd ..
+pip install -r experiments/robot/libero/libero_requirements.txt
+pip install "numpy<2.0"
 export TMPDIR=/tmp
 export PYTHONPATH="$(pwd)/LIBERO:$PYTHONPATH"
 
