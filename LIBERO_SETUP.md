@@ -27,7 +27,7 @@ cd tmi_openvla
 Request a GPU compute node with sufficient memory:
 
 ```bash
-srun --pty --gres=gpu:rtxa5000:1 --mem=32G --time=04:00:00 /bin/bash
+  srun -p class --pty --gres=gpu:rtxa5000:1 --mem=32G --time=04:00:00 /bin/bash
 ```
 
 Adjust GPU type and memory based on your cluster's available resources.
