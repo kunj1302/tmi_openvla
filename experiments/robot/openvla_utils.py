@@ -155,12 +155,18 @@ def get_vla_action(vla, processor, base_vla_name, obs, task_label, unnorm_key, c
         image = image.convert("RGB")
 
     # Build VLA prompt
+    # if "openvla-v01" in base_vla_name:  # OpenVLA v0.1
+    #     prompt = (
+    #         f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to {task_label.lower()}? ASSISTANT:"
+    #     )
+    # else:  # OpenVLA
+    #     prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
     if "openvla-v01" in base_vla_name:  # OpenVLA v0.1
         prompt = (
-            f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to {task_label.lower()}? ASSISTANT:"
+            f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to do nothing? ASSISTANT:"
         )
     else:  # OpenVLA
-        prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
+        prompt = f"In: What action should the robot take to do nothing?\nOut:"
 
     # Process inputs.
     inputs = processor(prompt, image).to(DEVICE, dtype=torch.bfloat16)
