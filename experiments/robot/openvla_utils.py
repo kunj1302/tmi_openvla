@@ -32,7 +32,17 @@ def get_vla(cfg):
     """Loads and returns a VLA model from checkpoint."""
     # Load VLA checkpoint.
     print("[*] Instantiating Pretrained VLA model")
-    print("[*] Loading in BF16 with Flash-Attention Enabled")
+    
+    # Check if Flash Attention 2 is available
+    # Try to import flash_attn directly since transformers detection can be unreliable
+    try:
+        import flash_attn
+        from flash_attn import flash_attn_func
+        flash_attn_available = True
+        print("[*] Flash Attention 2 detected (via direct import)")
+    except ImportError:
+        flash_attn_available = False
+        print("[*] Flash Attention 2 not available (will use default attention)")
 
     # Register OpenVLA model to HF Auto Classes (not needed if the model is on HF Hub)
     AutoConfig.register("openvla", OpenVLAConfig)
@@ -40,15 +50,38 @@ def get_vla(cfg):
     AutoProcessor.register(OpenVLAConfig, PrismaticProcessor)
     AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
-    vla = AutoModelForVision2Seq.from_pretrained(
-        cfg.pretrained_checkpoint,
-        attn_implementation="flash_attention_2",
-        torch_dtype=torch.bfloat16,
-        load_in_8bit=cfg.load_in_8bit,
-        load_in_4bit=cfg.load_in_4bit,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,
-    )
+    # Try to load with flash_attention_2, fall back to default if it fails
+    load_kwargs = {
+        "torch_dtype": torch.bfloat16,
+        "load_in_8bit": cfg.load_in_8bit,
+        "load_in_4bit": cfg.load_in_4bit,
+        "low_cpu_mem_usage": True,
+        "trust_remote_code": True,
+    }
+    
+    if flash_attn_available:
+        load_kwargs["attn_implementation"] = "flash_attention_2"
+        print("[*] Loading in BF16 with Flash-Attention 2 Enabled")
+    else:
+        print("[*] Loading in BF16 with default attention implementation")
+
+    try:
+        vla = AutoModelForVision2Seq.from_pretrained(
+            cfg.pretrained_checkpoint,
+            **load_kwargs
+        )
+    except Exception as e:
+        if flash_attn_available and "flash" in str(e).lower():
+            # Flash attention failed, try without it
+            print(f"[*] Flash Attention 2 failed: {e}")
+            print("[*] Falling back to default attention implementation")
+            load_kwargs.pop("attn_implementation", None)
+            vla = AutoModelForVision2Seq.from_pretrained(
+                cfg.pretrained_checkpoint,
+                **load_kwargs
+            )
+        else:
+            raise
 
     # Move model to device.
     # Note: `.to()` is not supported for 8-bit or 4-bit bitsandbytes models, but the model will
@@ -155,18 +188,18 @@ def get_vla_action(vla, processor, base_vla_name, obs, task_label, unnorm_key, c
         image = image.convert("RGB")
 
     # Build VLA prompt
-    # if "openvla-v01" in base_vla_name:  # OpenVLA v0.1
-    #     prompt = (
-    #         f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to {task_label.lower()}? ASSISTANT:"
-    #     )
-    # else:  # OpenVLA
-    #     prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
     if "openvla-v01" in base_vla_name:  # OpenVLA v0.1
         prompt = (
-            f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to do nothing? ASSISTANT:"
+            f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to {task_label.lower()}? ASSISTANT:"
         )
     else:  # OpenVLA
-        prompt = f"In: What action should the robot take to do nothing?\nOut:"
+        prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
+    # if "openvla-v01" in base_vla_name:  # OpenVLA v0.1
+    #     prompt = (
+    #         f"{OPENVLA_V01_SYSTEM_PROMPT} USER: What action should the robot take to do nothing? ASSISTANT:"
+    #     )
+    # else:  # OpenVLA
+    #     prompt = f"In: What action should the robot take to do nothing?\nOut:"
 
     # Process inputs.
     inputs = processor(prompt, image).to(DEVICE, dtype=torch.bfloat16)

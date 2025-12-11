@@ -17,11 +17,12 @@ Usage:
         --wandb_entity <ENTITY>
 """
 
+import json
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, List, Optional, Union
 
 import draccus
 import numpy as np
@@ -71,6 +72,7 @@ class GenerateConfig:
     task_suite_name: str = "libero_spatial"          # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_90
     num_steps_wait: int = 10                         # Number of steps to wait for objects to stabilize in sim
     num_trials_per_task: int = 50                    # Number of rollouts per task
+    paraphrase_json: Optional[str] = None            # Optional: Path to JSON file with prompt paraphrases to test
 
     #################################################################################################################
     # Utils
@@ -96,6 +98,13 @@ def eval_libero(cfg: GenerateConfig) -> None:
 
     # Set random seed
     set_seed_everywhere(cfg.seed)
+
+    # Load paraphrase JSON if provided
+    paraphrase_dict: Dict[str, List[str]] = {}
+    if cfg.paraphrase_json is not None and os.path.exists(cfg.paraphrase_json):
+        with open(cfg.paraphrase_json, "r") as f:
+            paraphrase_dict = json.load(f)
+        print(f"Loaded {len(paraphrase_dict)} tasks with paraphrases from {cfg.paraphrase_json}")
 
     # [OpenVLA] Set action un-normalization key
     cfg.unnorm_key = cfg.task_suite_name
@@ -143,6 +152,9 @@ def eval_libero(cfg: GenerateConfig) -> None:
     # Get expected image dimensions
     resize_size = get_image_resize_size(cfg)
 
+    # Initialize results tracking for paraphrases
+    results: Dict[str, Dict[str, Dict[str, int]]] = {}  # {task_name: {prompt: {success: count, total: count}}}
+
     # Start evaluation
     total_episodes, total_successes = 0, 0
     for task_id in tqdm.tqdm(range(num_tasks_in_suite)):
@@ -155,11 +167,32 @@ def eval_libero(cfg: GenerateConfig) -> None:
         # Initialize LIBERO environment and task description
         env, task_description = get_libero_env(task, cfg.model_family, resolution=256)
 
-        # Start episodes
+        # Get all prompts to test (original + paraphrases if available)
+        prompts_to_test = [task_description]  # Start with original
+        if task_description in paraphrase_dict:
+            prompts_to_test.extend(paraphrase_dict[task_description])
+            print(f"Task '{task_description}' has {len(paraphrase_dict[task_description])} paraphrases to test")
+        elif cfg.paraphrase_json is not None:
+            print(f"Warning: No paraphrases found for task '{task_description}' in {cfg.paraphrase_json}")
+
+        # Initialize results for this task
+        if task_description not in results:
+            results[task_description] = {}
+        for prompt in prompts_to_test:
+            if prompt not in results[task_description]:
+                results[task_description][prompt] = {"success": 0, "total": 0}
+
+        # Start episodes - test each prompt variant
         task_episodes, task_successes = 0, 0
-        for episode_idx in tqdm.tqdm(range(cfg.num_trials_per_task)):
-            print(f"\nTask: {task_description}")
-            log_file.write(f"\nTask: {task_description}\n")
+        for prompt_idx, prompt_variant in enumerate(prompts_to_test):
+            is_original = prompt_variant == task_description
+            prompt_label = "[ORIGINAL]" if is_original else f"[PARAPHRASE {prompt_idx}]"
+            print(f"\n{prompt_label} Testing prompt: '{prompt_variant}'")
+            log_file.write(f"\n{prompt_label} Testing prompt: '{prompt_variant}'\n")
+
+            for episode_idx in tqdm.tqdm(range(cfg.num_trials_per_task), desc=f"Prompt {prompt_idx+1}/{len(prompts_to_test)}"):
+                print(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}")
+                log_file.write(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}\n")
 
             # Reset environment
             env.reset()
@@ -207,12 +240,12 @@ def eval_libero(cfg: GenerateConfig) -> None:
                         ),
                     }
 
-                    # Query model to get action
+                        # Query model to get action (use prompt_variant instead of task_description)
                     action = get_action(
                         cfg,
                         model,
                         observation,
-                        task_description,
+                            prompt_variant,  # Use the prompt variant (original or paraphrase)
                         processor=processor,
                     )
 
@@ -237,22 +270,29 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     log_file.write(f"Caught exception: {e}\n")
                     break
 
-            task_episodes += 1
-            total_episodes += 1
+                task_episodes += 1
+                total_episodes += 1
 
-            # Save a replay video of the episode
-            save_rollout_video(
-                replay_images, total_episodes, success=done, task_description=task_description, log_file=log_file
-            )
+                # Update results for this prompt variant
+                results[task_description][prompt_variant]["total"] += 1
+                if done:
+                    results[task_description][prompt_variant]["success"] += 1
 
-            # Log current results
-            print(f"Success: {done}")
-            print(f"# episodes completed so far: {total_episodes}")
-            print(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)")
-            log_file.write(f"Success: {done}\n")
-            log_file.write(f"# episodes completed so far: {total_episodes}\n")
-            log_file.write(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)\n")
-            log_file.flush()
+                # Save a replay video of the episode
+                video_desc = f"{task_description[:30]}_p{prompt_idx}_t{episode_idx}"
+                save_rollout_video(
+                    replay_images, total_episodes, success=done, task_description=video_desc, log_file=log_file
+                )
+
+                # Log current results
+                prompt_success_rate = results[task_description][prompt_variant]["success"] / results[task_description][prompt_variant]["total"] * 100
+                print(f"Success: {done} | Prompt success rate: {prompt_success_rate:.1f}%")
+                print(f"# episodes completed so far: {total_episodes}")
+                print(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)")
+                log_file.write(f"Success: {done} | Prompt success rate: {prompt_success_rate:.1f}%\n")
+                log_file.write(f"# episodes completed so far: {total_episodes}\n")
+                log_file.write(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)\n")
+                log_file.flush()
 
         # Log final results
         print(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
@@ -267,6 +307,57 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     f"num_episodes/{task_description}": task_episodes,
                 }
             )
+
+    # Print and log paraphrase results summary if paraphrases were used
+    if cfg.paraphrase_json is not None and len(results) > 0:
+        print(f"\n{'='*80}")
+        print("PARAPHRASE RESULTS SUMMARY")
+        print(f"{'='*80}")
+        log_file.write(f"\n{'='*80}\n")
+        log_file.write("PARAPHRASE RESULTS SUMMARY\n")
+        log_file.write(f"{'='*80}\n")
+
+        original_total = 0
+        original_success = 0
+        paraphrase_total = 0
+        paraphrase_success = 0
+
+        for task_name, prompt_results in results.items():
+            print(f"\nTask: {task_name}")
+            log_file.write(f"\nTask: {task_name}\n")
+            for prompt, stats in prompt_results.items():
+                success_count = stats["success"]
+                total_count = stats["total"]
+                success_rate = (success_count / total_count * 100) if total_count > 0 else 0.0
+                
+                is_original = prompt == task_name
+                marker = "[ORIGINAL]" if is_original else "[PARAPHRASE]"
+                print(f"  {marker} '{prompt}': {success_count}/{total_count} ({success_rate:.2f}%)")
+                log_file.write(f"  {marker} '{prompt}': {success_count}/{total_count} ({success_rate:.2f}%)\n")
+                
+                if is_original:
+                    original_total += total_count
+                    original_success += success_count
+                else:
+                    paraphrase_total += total_count
+                    paraphrase_success += success_count
+
+        original_rate = (original_success / original_total * 100) if original_total > 0 else 0.0
+        paraphrase_rate = (paraphrase_success / paraphrase_total * 100) if paraphrase_total > 0 else 0.0
+
+        print(f"\nOverall Comparison:")
+        print(f"  Original Prompts: {original_success}/{original_total} ({original_rate:.2f}%)")
+        print(f"  Paraphrased Prompts: {paraphrase_success}/{paraphrase_total} ({paraphrase_rate:.2f}%)")
+        log_file.write(f"\nOverall Comparison:\n")
+        log_file.write(f"  Original Prompts: {original_success}/{original_total} ({original_rate:.2f}%)\n")
+        log_file.write(f"  Paraphrased Prompts: {paraphrase_success}/{paraphrase_total} ({paraphrase_rate:.2f}%)\n")
+
+        # Save detailed results to JSON
+        results_json_path = os.path.join(cfg.local_log_dir, run_id + "_paraphrase_results.json")
+        with open(results_json_path, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\nDetailed results saved to: {results_json_path}")
+        log_file.write(f"\nDetailed results saved to: {results_json_path}\n")
 
     # Save local log file
     log_file.close()
