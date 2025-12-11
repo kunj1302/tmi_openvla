@@ -194,82 +194,85 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 print(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}")
                 log_file.write(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}\n")
 
-            # Reset environment
-            env.reset()
+                # Reset environment
+                env.reset()
 
-            # Set initial states
-            obs = env.set_init_state(initial_states[episode_idx])
+                # Set initial states
+                obs = env.set_init_state(initial_states[episode_idx])
 
-            # Setup
-            t = 0
-            replay_images = []
-            if cfg.task_suite_name == "libero_spatial":
-                max_steps = 220  # longest training demo has 193 steps
-            elif cfg.task_suite_name == "libero_object":
-                max_steps = 280  # longest training demo has 254 steps
-            elif cfg.task_suite_name == "libero_goal":
-                max_steps = 300  # longest training demo has 270 steps
-            elif cfg.task_suite_name == "libero_10":
-                max_steps = 520  # longest training demo has 505 steps
-            elif cfg.task_suite_name == "libero_90":
-                max_steps = 400  # longest training demo has 373 steps
+                # Setup
+                t = 0
+                replay_images = []
+                done = False
+                if cfg.task_suite_name == "libero_spatial":
+                    max_steps = 220  # longest training demo has 193 steps
+                elif cfg.task_suite_name == "libero_object":
+                    max_steps = 280  # longest training demo has 254 steps
+                elif cfg.task_suite_name == "libero_goal":
+                    max_steps = 300  # longest training demo has 270 steps
+                elif cfg.task_suite_name == "libero_10":
+                    max_steps = 520  # longest training demo has 505 steps
+                elif cfg.task_suite_name == "libero_90":
+                    max_steps = 400  # longest training demo has 373 steps
 
-            print(f"Starting episode {task_episodes+1}...")
-            log_file.write(f"Starting episode {task_episodes+1}...\n")
-            while t < max_steps + cfg.num_steps_wait:
-                try:
-                    # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
-                    # and we need to wait for them to fall
-                    if t < cfg.num_steps_wait:
-                        obs, reward, done, info = env.step(get_libero_dummy_action(cfg.model_family))
-                        t += 1
-                        continue
+                print(f"Starting episode {task_episodes+1}...")
+                log_file.write(f"Starting episode {task_episodes+1}...\n")
+                while t < max_steps + cfg.num_steps_wait:
+                    try:
+                        # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
+                        # and we need to wait for them to fall
+                        if t < cfg.num_steps_wait:
+                            obs, reward, done, info = env.step(get_libero_dummy_action(cfg.model_family))
+                            t += 1
+                            continue
 
-                    # Get preprocessed image
-                    img = get_libero_image(obs, resize_size)
+                        # Get preprocessed image
+                        img = get_libero_image(obs, resize_size)
 
-                    # Save preprocessed image for replay video
-                    replay_images.append(img)
+                        # Save preprocessed image for replay video
+                        replay_images.append(img)
 
-                    # Prepare observations dict
-                    # Note: OpenVLA does not take proprio state as input
-                    observation = {
-                        "full_image": img,
-                        "state": np.concatenate(
-                            (obs["robot0_eef_pos"], quat2axisangle(obs["robot0_eef_quat"]), obs["robot0_gripper_qpos"])
-                        ),
-                    }
+                        # Prepare observations dict
+                        # Note: OpenVLA does not take proprio state as input
+                        observation = {
+                            "full_image": img,
+                            "state": np.concatenate(
+                                (obs["robot0_eef_pos"], quat2axisangle(obs["robot0_eef_quat"]), obs["robot0_gripper_qpos"])
+                            ),
+                        }
 
                         # Query model to get action (use prompt_variant instead of task_description)
-                    action = get_action(
-                        cfg,
-                        model,
-                        observation,
+                        action = get_action(
+                            cfg,
+                            model,
+                            observation,
                             prompt_variant,  # Use the prompt variant (original or paraphrase)
-                        processor=processor,
-                    )
+                            processor=processor,
+                        )
 
-                    # Normalize gripper action [0,1] -> [-1,+1] because the environment expects the latter
-                    action = normalize_gripper_action(action, binarize=True)
+                        # Normalize gripper action [0,1] -> [-1,+1] because the environment expects the latter
+                        action = normalize_gripper_action(action, binarize=True)
 
-                    # [OpenVLA] The dataloader flips the sign of the gripper action to align with other datasets
-                    # (0 = close, 1 = open), so flip it back (-1 = open, +1 = close) before executing the action
-                    if cfg.model_family == "openvla":
-                        action = invert_gripper_action(action)
+                        # [OpenVLA] The dataloader flips the sign of the gripper action to align with other datasets
+                        # (0 = close, 1 = open), so flip it back (-1 = open, +1 = close) before executing the action
+                        if cfg.model_family == "openvla":
+                            action = invert_gripper_action(action)
 
-                    # Execute action in environment
-                    obs, reward, done, info = env.step(action.tolist())
-                    if done:
-                        task_successes += 1
-                        total_successes += 1
+                        # Execute action in environment
+                        obs, reward, done, info = env.step(action.tolist())
+                        if done:
+                            task_successes += 1
+                            total_successes += 1
+                            break
+                        t += 1
+
+                    except Exception as e:
+                        print(f"Caught exception: {e}")
+                        log_file.write(f"Caught exception: {e}\n")
+                        done = False  # Mark as failed if exception occurs
                         break
-                    t += 1
 
-                except Exception as e:
-                    print(f"Caught exception: {e}")
-                    log_file.write(f"Caught exception: {e}\n")
-                    break
-
+                # After episode completes, update counters and save video
                 task_episodes += 1
                 total_episodes += 1
 
@@ -278,7 +281,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 if done:
                     results[task_description][prompt_variant]["success"] += 1
 
-                # Save a replay video of the episode
+                # Save a replay video of the episode (only once per episode, after it completes)
                 video_desc = f"{task_description[:30]}_p{prompt_idx}_t{episode_idx}"
                 save_rollout_video(
                     replay_images, total_episodes, success=done, task_description=video_desc, log_file=log_file
