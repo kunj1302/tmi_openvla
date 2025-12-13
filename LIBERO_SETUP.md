@@ -433,6 +433,17 @@ python experiments/robot/libero/run_libero_eval.py \
   --paraphrase_json experiments/object_paraphrased.json
 ```
 
+**LIBERO-Object with Conversational Prompts:**
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational.json
+```
+
 **LIBERO-Goal:**
 ```bash
 python experiments/robot/libero/run_libero_eval.py \
