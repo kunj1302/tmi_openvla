@@ -230,6 +230,60 @@ See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated
 
 These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. The paraphrased prompts achieve a 54% success rate across 50 trials (10 tasks × 5 paraphrases each), while the original prompts achieve 70% success rate across 10 trials.
 
+#### Run LIBERO Evaluation with Conversational Prompts
+
+You can test the model's robustness to conversational language by providing a JSON file with conversational task instructions. This is useful for evaluating whether the model can handle natural conversational elements like greetings, politeness phrases, and additional context without changing the core task.
+
+Using the `object_conversational.json` file:
+
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational.json
+```
+
+**How it works:**
+
+- The evaluation script will test each task with both the original prompt and all conversational variants from the JSON file
+- Success rates are tracked separately for original vs. conversational prompts
+- Results are saved to a detailed JSON file: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
+- The log file includes a summary comparing original vs. conversational prompt performance
+
+**JSON Format:** The conversational JSON file should have the following structure:
+
+```json
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "Hello! I'd like you to pick up the alphabet soup and place it in the basket, if you don't mind.",
+    "Could you please grab the alphabet soup? I need it placed in the basket when you get a chance.",
+    "Just so you know, we need to pick up the alphabet soup and move it to the basket.",
+    "Hey there! The alphabet soup needs to go in the basket. Can you handle that?",
+    "I was wondering if you could pick up that alphabet soup and put it in the basket for me."
+  ],
+  ...
+}
+```
+
+Where each key is the original task instruction and the value is a list of conversational variants with additional phrases like greetings, politeness markers, and contextual commentary.
+
+**Note:** The task description in the JSON file must exactly match the task description from the LIBERO benchmark. If a task doesn't have a matching key in the JSON file, a warning will be printed and only the original prompt will be tested.
+
+See `CONVERSATIONAL_GENERATION.md` for details on how the conversational variants were generated.
+
+#### Evaluation Results Comparison
+
+**LIBERO-Object with Original, Paraphrased, and Conversational Prompts (1 trial per prompt variant):**
+
+- **Original Prompts:** 6/10 (60.00%)
+- **Paraphrased Prompts:** 27/50 (54.00%)  
+- **Conversational Prompts:** 8/50 (16.00%)
+
+These results demonstrate the model's varying sensitivity to different types of natural language variations. While paraphrased prompts (with synonym substitutions) achieve 54% success rate comparable to the 60% with original prompts, conversational prompts (with politeness phrases, greetings, and additional context) show a dramatic drop to 16% success rate. This indicates that the model struggles significantly with the additional linguistic elements present in natural conversational instructions, even when the core task description remains unchanged.
+
 ### Available Task Suites
 
 - `libero_spatial` - 10 spatial reasoning tasks
@@ -252,14 +306,14 @@ These results show that the model performs better with the original task descrip
 - `--num_trials_per_task`: Number of rollouts per task (default: 50, use 1 for quick testing)
 - `--center_crop`: Set to `True` if model was fine-tuned with augmentations (default: `True`)
 - `--seed`: Random seed for reproducibility (default: 7)
-- `--paraphrase_json`: Optional path to JSON file with prompt paraphrases to test (default: `None`)
+- `--paraphrase_json`: Optional path to JSON file with prompt variants (paraphrased or conversational) to test (default: `None`)
 
 ## Step 6: Results
 
 Results are saved to:
 - **Log file**: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}.txt`
 - **Videos**: `./rollouts/{date}/episode_{N}_success_{True/False}_task_{description}.mp4`
-- **Paraphrase results** (if `--paraphrase_json` is used): `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
+- **Prompt variants results** (if `--paraphrase_json` is used): `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
 
 ## Troubleshooting
 
@@ -290,6 +344,39 @@ Results are saved to:
 
 ## Quick Reference
 
+**How it works:**
+- The evaluation script will test each task with both the original prompt and all paraphrased variants from the JSON file
+- Success rates are tracked separately for original vs. paraphrased prompts
+- Results are saved to a detailed JSON file: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
+- The log file includes a summary comparing original vs. paraphrased prompt performance
+
+**JSON Format:**
+The paraphrase JSON file should have the following structure:
+```json
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "grab the alphabet soup and put it in the basket",
+    "move the alphabet soup into the basket",
+    ...
+  ],
+  ...
+}
+```
+
+Where each key is the original task instruction and the value is a list of paraphrased versions.
+
+**Note:** The task description in the JSON file must exactly match the task description from the LIBERO benchmark. If a task doesn't have a matching key in the JSON file, a warning will be printed and only the original prompt will be tested.
+
+See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated.
+
+#### Evaluation Results
+
+**LIBERO-Object with Paraphrased Prompts (1 trial per prompt variant):**
+
+- **Original Prompts:** 7/10 (70.00%)
+- **Paraphrased Prompts:** 27/50 (54.00%)
+
+These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. The paraphrased prompts achieve a 54% success rate across 50 trials (10 tasks × 5 paraphrases each), while the original prompts achieve 70% success rate across 10 trials.
 ```bash
 # Complete setup (after getting compute node)
 
