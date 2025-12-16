@@ -1,0 +1,42 @@
+{
+    "pick up the black bowl between the plate and the ramekin and place it on the plate": [
+      "move the black bowl situated between the plate and the ramekin to the plate",
+      "lift the black bowl found between the plate and the ramekin onto the plate"
+    ],
+    "pick up the black bowl next to the ramekin and place it on the plate": [
+      "move the black bowl by the ramekin onto the plate",
+      "lift the black bowl near the ramekin and deposit it on the plate"
+    ],
+    "pick up the black bowl from table center and place it on the plate": [
+      "move the black bowl from the middle of the table to the plate",
+      "lift the black bowl located at the table center onto the plate"
+    ],
+    "pick up the black bowl on the cookie box and place it on the plate": [
+      "move the black bowl from atop the cookie box to the plate",
+      "lift the black bowl off the cookie box and place it on the plate"
+    ],
+    "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate": [
+      "move the black bowl inside the top drawer of the wooden cabinet to the plate",
+      "retrieve the black bowl from the top drawer of the wooden cabinet and place it on the plate"
+    ],
+    "pick up the black bowl on the ramekin and place it on the plate": [
+      "move the black bowl from atop the ramekin to the plate",
+      "lift the black bowl off the ramekin and place it on the plate"
+    ],
+    "pick up the black bowl next to the cookie box and place it on the plate": [
+      "move the black bowl by the cookie box onto the plate",
+      "lift the black bowl near the cookie box and deposit it on the plate"
+    ],
+    "pick up the black bowl on the stove and place it on the plate": [
+      "move the black bowl from the stove to the plate",
+      "lift the black bowl off the stove and place it on the plate"
+    ],
+    "pick up the black bowl next to the plate and place it on the plate": [
+      "move the black bowl lying next to the plate onto the plate itself",
+      "lift the black bowl near the plate and place it on the plate"
+    ],
+    "pick up the black bowl on the wooden cabinet and place it on the plate": [
+      "move the black bowl from the wooden cabinet to the plate",
+      "lift the black bowl off the wooden cabinet and place it on the plate"
+    ]
+  }

@@ -1,0 +1,42 @@
+{
+    "pick up the alphabet soup and place it in the basket": [
+      "move the alphabet soup into the basket",
+      "lift the alphabet soup and place it into the basket"
+    ],
+    "pick up the cream cheese and place it in the basket": [
+      "move the cream cheese into the basket",
+      "lift the cream cheese and set it in the basket"
+    ],
+    "pick up the salad dressing and place it in the basket": [
+      "place the salad dressing inside the basket",
+      "move the salad dressing into the basket"
+    ],
+    "pick up the bbq sauce and place it in the basket": [
+      "move the bbq sauce to the basket",
+      "transfer the bbq sauce into the basket"
+    ],
+    "pick up the ketchup and place it in the basket": [
+      "put the ketchup in the basket",
+      "move the ketchup into the basket"
+    ],
+    "pick up the tomato sauce and place it in the basket": [
+      "move the tomato sauce to the basket",
+      "place the tomato sauce into the basket"
+    ],
+    "pick up the butter and place it in the basket": [
+      "place the butter inside the basket",
+      "move the butter into the basket"
+    ],
+    "pick up the milk and place it in the basket": [
+      "transfer the milk to the basket",
+      "move the milk inside the basket"
+    ],
+    "pick up the chocolate pudding and place it in the basket": [
+      "put the chocolate pudding in the basket",
+      "move the chocolate pudding into the basket"
+    ],
+    "pick up the orange juice and place it in the basket": [
+      "move the orange juice to the basket",
+      "place the orange juice into the basket"
+    ]
+  }
