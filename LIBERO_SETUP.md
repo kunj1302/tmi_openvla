@@ -223,17 +223,17 @@ See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated
 
 #### Evaluation Results
 
-**LIBERO-Object with Paraphrased Prompts (1 trial per prompt variant):**
+**LIBERO-Object with Paraphrased Prompts (20 trials per prompt variant):**
 
-- **Original Prompts:** 7/10 (70.00%)
-- **Paraphrased Prompts:** 27/50 (54.00%)
+- **Original Prompts:** 138/200 (69.00%)
+- **Paraphrased Prompts:** 227/400 (56.75%)
 
 **LIBERO-Spatial with Paraphrased Prompts (20 trials per prompt variant):**
 
 - **Original Prompts:** 165/200 (82.50%)
 - **Paraphrased Prompts:** 275/400 (68.75%)
 
-These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. The paraphrased prompts achieve a 54% success rate across 50 trials (10 tasks × 5 paraphrases each), while the original prompts achieve 70% success rate across 10 trials.
+These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. Note that success rates depend on the trial count (`--num_trials_per_task`) and the specific paraphrase set used.
 
 ### Available Task Suites
 
