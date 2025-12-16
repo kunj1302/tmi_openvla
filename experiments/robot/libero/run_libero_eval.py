@@ -19,6 +19,7 @@ Usage:
 
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +80,9 @@ class GenerateConfig:
     #################################################################################################################
     run_id_note: Optional[str] = None                # Extra note to add in run ID for logging
     local_log_dir: str = "./experiments/logs"        # Local directory for eval logs
+    hf_cache_dir: Optional[str] = None               # Custom Hugging Face cache directory (overrides HF_HOME)
+    resume_results_path: Optional[str] = None        # Optional: path to existing *_paraphrase_results.json to resume from
+    resume_from_txt: Optional[str] = None            # Optional: path to existing .txt log file to resume from
 
     use_wandb: bool = False                          # Whether to also log results in Weights & Biases
     wandb_project: str = "YOUR_WANDB_PROJECT"        # Name of W&B project to log to (use default!)
@@ -89,12 +93,69 @@ class GenerateConfig:
     # fmt: on
 
 
+def parse_txt_log_for_resume(txt_log_path: str) -> Dict[str, Dict[str, Dict[str, int]]]:
+    """
+    Parse a .txt log file to extract trial results for resuming.
+    
+    Returns a dict: {task_description: {prompt_variant: {"success": count, "total": count}}}
+    """
+    results: Dict[str, Dict[str, Dict[str, int]]] = {}
+    
+    with open(txt_log_path, "r") as f:
+        lines = f.readlines()
+    
+    current_task = None
+    current_prompt = None
+    
+    # Pattern to match: Task: <task> | Prompt: '<prompt>' | Trial X/Y
+    trial_pattern = re.compile(r"Task: (.+?) \| Prompt: '(.+?)' \| Trial (\d+)/(\d+)")
+    # Pattern to match: Success: True|False
+    success_pattern = re.compile(r"Success: (True|False)")
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Check for trial line
+        trial_match = trial_pattern.search(line)
+        if trial_match:
+            current_task = trial_match.group(1)
+            current_prompt = trial_match.group(2)
+            
+            # Initialize if needed
+            if current_task not in results:
+                results[current_task] = {}
+            if current_prompt not in results[current_task]:
+                results[current_task][current_prompt] = {"success": 0, "total": 0}
+            
+            # Look for success line in the next few lines
+            for j in range(i + 1, min(i + 10, len(lines))):
+                success_match = success_pattern.search(lines[j])
+                if success_match:
+                    results[current_task][current_prompt]["total"] += 1
+                    if success_match.group(1) == "True":
+                        results[current_task][current_prompt]["success"] += 1
+                    break
+        
+        i += 1
+    
+    return results
+
+
 @draccus.wrap()
 def eval_libero(cfg: GenerateConfig) -> None:
     assert cfg.pretrained_checkpoint is not None, "cfg.pretrained_checkpoint must not be None!"
     if "image_aug" in cfg.pretrained_checkpoint:
         assert cfg.center_crop, "Expecting `center_crop==True` because model was trained with image augmentations!"
     assert not (cfg.load_in_8bit and cfg.load_in_4bit), "Cannot use both 8-bit and 4-bit quantization!"
+
+    # Set Hugging Face cache directory if specified
+    if cfg.hf_cache_dir is not None:
+        os.makedirs(cfg.hf_cache_dir, exist_ok=True)
+        # Set HF_HOME to point to the cache directory
+        # Hugging Face will use {HF_HOME}/hub for model cache
+        os.environ["HF_HOME"] = cfg.hf_cache_dir
+        print(f"[*] Using custom Hugging Face cache directory: {cfg.hf_cache_dir}")
 
     # Set random seed
     set_seed_everywhere(cfg.seed)
@@ -105,6 +166,30 @@ def eval_libero(cfg: GenerateConfig) -> None:
         with open(cfg.paraphrase_json, "r") as f:
             paraphrase_dict = json.load(f)
         print(f"Loaded {len(paraphrase_dict)} tasks with paraphrases from {cfg.paraphrase_json}")
+
+    # Optionally load previous paraphrase results to resume from (JSON or TXT)
+    resume_results: Dict[str, Dict[str, Dict[str, int]]] = {}
+    if cfg.resume_from_txt is not None:
+        # Parse from .txt log file
+        if os.path.exists(cfg.resume_from_txt):
+            resume_results = parse_txt_log_for_resume(cfg.resume_from_txt)
+            total_trials = sum(
+                stats["total"]
+                for task_prompts in resume_results.values()
+                for stats in task_prompts.values()
+            )
+            print(f"[*] Resuming from TXT log at {cfg.resume_from_txt}")
+            print(f"    Found {len(resume_results)} tasks with {total_trials} total completed trials")
+        else:
+            print(f"[!] Warning: resume_from_txt '{cfg.resume_from_txt}' does not exist; starting fresh.")
+    elif cfg.resume_results_path is not None:
+        # Load from JSON file
+        if os.path.exists(cfg.resume_results_path):
+            with open(cfg.resume_results_path, "r") as f:
+                resume_results = json.load(f)
+            print(f"[*] Resuming from existing JSON results at {cfg.resume_results_path}")
+        else:
+            print(f"[!] Warning: resume_results_path '{cfg.resume_results_path}' does not exist; starting fresh.")
 
     # [OpenVLA] Set action un-normalization key
     cfg.unnorm_key = cfg.task_suite_name
@@ -179,7 +264,18 @@ def eval_libero(cfg: GenerateConfig) -> None:
         if task_description not in results:
             results[task_description] = {}
         for prompt in prompts_to_test:
-            if prompt not in results[task_description]:
+            # If we have previous results for this task / prompt, seed from them
+            if (
+                task_description in resume_results
+                and prompt in resume_results[task_description]
+                and prompt not in results[task_description]
+            ):
+                prev_stats = resume_results[task_description][prompt]
+                results[task_description][prompt] = {
+                    "success": int(prev_stats.get("success", 0)),
+                    "total": int(prev_stats.get("total", 0)),
+                }
+            elif prompt not in results[task_description]:
                 results[task_description][prompt] = {"success": 0, "total": 0}
 
         # Start episodes - test each prompt variant
@@ -190,7 +286,22 @@ def eval_libero(cfg: GenerateConfig) -> None:
             print(f"\n{prompt_label} Testing prompt: '{prompt_variant}'")
             log_file.write(f"\n{prompt_label} Testing prompt: '{prompt_variant}'\n")
 
-            for episode_idx in tqdm.tqdm(range(cfg.num_trials_per_task), desc=f"Prompt {prompt_idx+1}/{len(prompts_to_test)}"):
+            # Determine how many trials have already been completed for this prompt (if resuming)
+            completed_trials = results[task_description][prompt_variant]["total"]
+            if completed_trials >= cfg.num_trials_per_task:
+                # Nothing left to do for this prompt
+                print(
+                    f"  [SKIP] Prompt already has {completed_trials}/{cfg.num_trials_per_task} trials completed; skipping."
+                )
+                log_file.write(
+                    f"  [SKIP] Prompt already has {completed_trials}/{cfg.num_trials_per_task} trials completed; skipping.\n"
+                )
+                continue
+
+            for episode_idx in tqdm.tqdm(
+                range(completed_trials, cfg.num_trials_per_task),
+                desc=f"Prompt {prompt_idx+1}/{len(prompts_to_test)}",
+            ):
                 print(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}")
                 log_file.write(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}\n")
 
@@ -281,11 +392,12 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 if done:
                     results[task_description][prompt_variant]["success"] += 1
 
-                # Save a replay video of the episode (only once per episode, after it completes)
-                video_desc = f"{task_description[:30]}_p{prompt_idx}_t{episode_idx}"
-                save_rollout_video(
-                    replay_images, total_episodes, success=done, task_description=video_desc, log_file=log_file
-                )
+                # Save a replay video of the episode (only for the first trial of each prompt variant)
+                if episode_idx == 0:
+                    video_desc = f"{task_description[:30]}_p{prompt_idx}_t{episode_idx}"
+                    save_rollout_video(
+                        replay_images, total_episodes, success=done, task_description=video_desc, log_file=log_file
+                    )
 
                 # Log current results
                 prompt_success_rate = results[task_description][prompt_variant]["success"] / results[task_description][prompt_variant]["total"] * 100
@@ -297,11 +409,22 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 log_file.write(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)\n")
                 log_file.flush()
 
-        # Log final results
-        print(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
-        print(f"Current total success rate: {float(total_successes) / float(total_episodes)}")
-        log_file.write(f"Current task success rate: {float(task_successes) / float(task_episodes)}\n")
-        log_file.write(f"Current total success rate: {float(total_successes) / float(total_episodes)}\n")
+        # Log final results (guard against division by zero when resuming)
+        if task_episodes > 0:
+            current_task_rate = float(task_successes) / float(task_episodes)
+            print(f"Current task success rate: {current_task_rate}")
+            log_file.write(f"Current task success rate: {current_task_rate}\n")
+        else:
+            print("Current task success rate: N/A (no new episodes run for this task)")
+            log_file.write("Current task success rate: N/A (no new episodes run for this task)\n")
+
+        if total_episodes > 0:
+            current_total_rate = float(total_successes) / float(total_episodes)
+            print(f"Current total success rate: {current_total_rate}")
+            log_file.write(f"Current total success rate: {current_total_rate}\n")
+        else:
+            print("Current total success rate: N/A (no episodes run)")
+            log_file.write("Current total success rate: N/A (no episodes run)\n")
         log_file.flush()
         if cfg.use_wandb:
             wandb.log(

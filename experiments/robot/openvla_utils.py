@@ -50,6 +50,17 @@ def get_vla(cfg):
     AutoProcessor.register(OpenVLAConfig, PrismaticProcessor)
     AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
+    # Get cache directory from HF_HOME if set, otherwise use default
+    cache_dir = None
+    if hasattr(cfg, 'hf_cache_dir') and cfg.hf_cache_dir is not None:
+        # Use the hub subdirectory for model cache
+        cache_dir = os.path.join(cfg.hf_cache_dir, "hub")
+        os.makedirs(cache_dir, exist_ok=True)
+        print(f"[*] Using cache directory: {cache_dir}")
+    elif "HF_HOME" in os.environ:
+        cache_dir = os.path.join(os.environ["HF_HOME"], "hub")
+        print(f"[*] Using HF_HOME cache directory: {cache_dir}")
+
     # Try to load with flash_attention_2, fall back to default if it fails
     load_kwargs = {
         "torch_dtype": torch.bfloat16,
@@ -58,6 +69,10 @@ def get_vla(cfg):
         "low_cpu_mem_usage": True,
         "trust_remote_code": True,
     }
+    
+    # Add cache_dir if specified
+    if cache_dir is not None:
+        load_kwargs["cache_dir"] = cache_dir
     
     if flash_attn_available:
         load_kwargs["attn_implementation"] = "flash_attention_2"
@@ -107,7 +122,20 @@ def get_vla(cfg):
 
 def get_processor(cfg):
     """Get VLA model's Hugging Face processor."""
-    processor = AutoProcessor.from_pretrained(cfg.pretrained_checkpoint, trust_remote_code=True)
+    # Get cache directory from HF_HOME if set, otherwise use default
+    cache_dir = None
+    if hasattr(cfg, 'hf_cache_dir') and cfg.hf_cache_dir is not None:
+        # Use the hub subdirectory for model cache
+        cache_dir = os.path.join(cfg.hf_cache_dir, "hub")
+        os.makedirs(cache_dir, exist_ok=True)
+    elif "HF_HOME" in os.environ:
+        cache_dir = os.path.join(os.environ["HF_HOME"], "hub")
+    
+    processor_kwargs = {"trust_remote_code": True}
+    if cache_dir is not None:
+        processor_kwargs["cache_dir"] = cache_dir
+    
+    processor = AutoProcessor.from_pretrained(cfg.pretrained_checkpoint, **processor_kwargs)
     return processor
 
 
