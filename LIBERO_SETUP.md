@@ -228,6 +228,11 @@ See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated
 - **Original Prompts:** 7/10 (70.00%)
 - **Paraphrased Prompts:** 27/50 (54.00%)
 
+**LIBERO-Spatial with Paraphrased Prompts (20 trials per prompt variant):**
+
+- **Original Prompts:** 165/200 (82.50%)
+- **Paraphrased Prompts:** 275/400 (68.75%)
+
 These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. The paraphrased prompts achieve a 54% success rate across 50 trials (10 tasks × 5 paraphrases each), while the original prompts achieve 70% success rate across 10 trials.
 
 ### Available Task Suites
@@ -270,6 +275,46 @@ Results are saved to:
 3. Remove unused model caches: `rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b`
 4. Set `TMPDIR=/tmp` and `HF_HOME=/tmp/huggingface` before running (as shown above) to use /tmp for downloads and model cache
 5. If home directory is still full, you can move the existing cache: `mv ~/.cache/huggingface /tmp/huggingface` and then set `HF_HOME=/tmp/huggingface`
+
+### Deleting LIBERO Model Checkpoints to Free Space
+
+If you need to free up disk space by removing specific LIBERO fine-tuned model checkpoints:
+
+**Check size before deletion:**
+```bash
+# Check size of LIBERO-Object checkpoint (~16GB)
+du -sh ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-object
+
+# Check size of LIBERO-Spatial checkpoint
+du -sh ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-spatial
+
+# Check size of LIBERO-Goal checkpoint
+du -sh ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-goal
+
+# Check size of LIBERO-10 checkpoint
+du -sh ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-10
+```
+
+**Delete specific LIBERO checkpoints:**
+```bash
+# Delete LIBERO-Object checkpoint (~16GB)
+rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-object \
+       ~/.cache/huggingface/hub/.locks/models--openvla--openvla-7b-finetuned-libero-object
+
+# Delete LIBERO-Spatial checkpoint
+rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-spatial \
+       ~/.cache/huggingface/hub/.locks/models--openvla--openvla-7b-finetuned-libero-spatial
+
+# Delete LIBERO-Goal checkpoint
+rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-goal \
+       ~/.cache/huggingface/hub/.locks/models--openvla--openvla-7b-finetuned-libero-goal
+
+# Delete LIBERO-10 checkpoint
+rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-10 \
+       ~/.cache/huggingface/hub/.locks/models--openvla--openvla-7b-finetuned-libero-10
+```
+
+**Note:** The model will be automatically re-downloaded from Hugging Face Hub when you run an evaluation that requires it.
 
 ### Flash Attention 2 installation fails
 
