@@ -234,7 +234,7 @@ These results show that the model performs better with the original task descrip
 
 You can test the model's robustness to conversational language by providing a JSON file with conversational task instructions. This is useful for evaluating whether the model can handle natural conversational elements like greetings, politeness phrases, and additional context without changing the core task.
 
-Using the `object_conversational.json` file:
+**Using the `object_conversational.json` file (with extra commentary):**
 
 ```bash
 python experiments/robot/libero/run_libero_eval.py \
@@ -246,6 +246,18 @@ python experiments/robot/libero/run_libero_eval.py \
   --paraphrase_json experiments/object_conversational.json
 ```
 
+**Using the `object_conversational_minimal.json` file (without excessive commentary):**
+
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational_minimal.json
+```
+
 **How it works:**
 
 - The evaluation script will test each task with both the original prompt and all conversational variants from the JSON file
@@ -253,8 +265,9 @@ python experiments/robot/libero/run_libero_eval.py \
 - Results are saved to a detailed JSON file: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
 - The log file includes a summary comparing original vs. conversational prompt performance
 
-**JSON Format:** The conversational JSON file should have the following structure:
+**JSON Format:** The conversational JSON files have the following structure:
 
+**Full conversational (with extra commentary):**
 ```json
 {
   "pick up the alphabet soup and place it in the basket": [
@@ -268,18 +281,31 @@ python experiments/robot/libero/run_libero_eval.py \
 }
 ```
 
-Where each key is the original task instruction and the value is a list of conversational variants with additional phrases like greetings, politeness markers, and contextual commentary.
+**Minimal conversational (natural tone without excessive commentary):**
+```json
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "could you please pick up the alphabet soup and place it in the basket?",
+    "can you grab the alphabet soup and put it in the basket?",
+    "I need you to pick up the alphabet soup and place it in the basket",
+    "please pick up the alphabet soup and move it to the basket",
+    "can you help me by picking up the alphabet soup and placing it in the basket?"
+  ],
+  ...
+}
+```
+
+Where each key is the original task instruction and the value is a list of conversational variants with natural phrasing and politeness.
 
 **Note:** The task description in the JSON file must exactly match the task description from the LIBERO benchmark. If a task doesn't have a matching key in the JSON file, a warning will be printed and only the original prompt will be tested.
 
-See `CONVERSATIONAL_GENERATION.md` for details on how the conversational variants were generated.
+See `CONVERSATIONAL_GENERATION.md` and `CONVERSATIONAL_MINIMAL_GENERATION.md` for details on how the conversational variants were generated.
 
 #### Evaluation Results Comparison
 
 **LIBERO-Object with Original, Paraphrased, and Conversational Prompts (1 trial per prompt variant):**
 
 - **Original Prompts:** 6/10 (60.00%)
-- **Paraphrased Prompts:** 27/50 (54.00%)  
 - **Conversational Prompts:** 8/50 (16.00%)
 
 These results demonstrate the model's varying sensitivity to different types of natural language variations. While paraphrased prompts (with synonym substitutions) achieve 54% success rate comparable to the 60% with original prompts, conversational prompts (with politeness phrases, greetings, and additional context) show a dramatic drop to 16% success rate. This indicates that the model struggles significantly with the additional linguistic elements present in natural conversational instructions, even when the core task description remains unchanged.
