@@ -130,7 +130,6 @@ cd tmi_openvla  # Navigate to repo
 source venv/bin/activate
 
 # Set environment variables
-export TMPDIR=/tmp  # Use /tmp for downloads (has more space)
 export PYTHONPATH="$(pwd)/LIBERO:$PYTHONPATH"  # Adjust path as needed
 ```
 
@@ -221,6 +220,56 @@ Where each key is the original task instruction and the value is a list of parap
 
 See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated.
 
+#### Using Llama3 Filter for Prompt Sanitization
+
+You can use a Llama3-based filter to sanitize paraphrased or conversational prompts before sending them to OpenVLA. This is useful for:
+- Converting natural language variations into standardized robot commands
+- Testing if prompt normalization improves robustness to paraphrases
+- Comparing filtered vs. unfiltered paraphrase performance
+
+**Setup:**
+
+1. Start the Llama3 filter server (in a separate terminal or before running evaluation):
+```bash
+cd llama3_filter_project
+python server.py
+```
+
+The server will:
+- Load Llama3.1-8B-Instruct in 4-bit mode (~6GB VRAM)
+- Listen on `http://localhost:6000/filter`
+- Log all input/output for debugging
+
+2. Run LIBERO evaluation with the filter enabled:
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_paraphrased.json \
+  --use_llama_filter True \
+  --llama_filter_url http://localhost:6000/filter
+```
+
+**How it works:**
+- When `--use_llama_filter True`, the evaluation will **skip original prompts entirely**
+- Paraphrased/conversation prompts are sent to the Llama3 server for sanitization
+- The server converts noisy input like "Hey, grab that red mug and put it on the table" into clean commands like "pick up the red mug and place it on the table"
+- All filter operations are logged to both terminal and the log file
+
+**Llama3 Filter Parameters:**
+- `--use_llama_filter`: Set to `True` to enable the filter (default: `False`)
+- `--llama_filter_url`: URL of the filter server (default: `http://localhost:6000/filter`)
+
+**Logging:**
+Both the server (`server.py`) and the evaluation script log filter operations:
+```
+[LLAMA3 FILTER] Input: 'Hey, carefully grab the red mug and stick it on the table?'
+[LLAMA3 FILTER] Output: 'pick up the red mug and place it on the table'
+```
+
 #### Evaluation Results
 
 **LIBERO-Object with Paraphrased Prompts (20 trials per prompt variant):**
@@ -233,7 +282,15 @@ See `PARAPHRASE_GENERATION.md` for details on how the paraphrases were generated
 - **Original Prompts:** 165/200 (82.50%)
 - **Paraphrased Prompts:** 275/400 (68.75%)
 
-These results show that the model performs better with the original task descriptions compared to paraphrased variants, indicating some sensitivity to natural language variations. Note that success rates depend on the trial count (`--num_trials_per_task`) and the specific paraphrase set used.
+**LIBERO-Object with Llama3 Filter (20 trials per prompt variant):**
+
+- **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
+- **Paraphrased Prompts (Filtered):** 276/400 (69.00%)
+
+These results show that:
+- The model performs better with the original task descriptions compared to unfiltered paraphrased variants, indicating some sensitivity to natural language variations
+- **Llama3 filtering improves paraphrase performance** from 56.75% to 69.00%, demonstrating that prompt sanitization can help normalize natural language variations
+- Note that success rates depend on the trial count (`--num_trials_per_task`) and the specific paraphrase set used
 
 ### Available Task Suites
 
@@ -258,6 +315,9 @@ These results show that the model performs better with the original task descrip
 - `--center_crop`: Set to `True` if model was fine-tuned with augmentations (default: `True`)
 - `--seed`: Random seed for reproducibility (default: 7)
 - `--paraphrase_json`: Optional path to JSON file with prompt paraphrases to test (default: `None`)
+- `--use_llama_filter`: Enable Llama3 filter for sanitizing paraphrased prompts (default: `False`)
+- `--llama_filter_url`: URL of the Llama3 filter server (default: `http://localhost:6000/filter`)
+- `--only_use_paraphrases`: If `True`, do NOT evaluate original prompts; only evaluate prompts from the JSON (default: `False`)
 
 ## Step 6: Results
 
