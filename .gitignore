@@ -157,3 +157,9 @@ wandb/
 # LIBERO
 # 1. Add it as a git submodule: git submodule add https://github.com/Lifelong-Robot-Learning/LIBERO.git
 # LIBERO/
+
+modified_libero_rlds/
+
+adapter-tmp/
+
+finetune_eval_log_2025-12-17.txt
