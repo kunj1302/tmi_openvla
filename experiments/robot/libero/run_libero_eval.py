@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Union
 
 import draccus
 import numpy as np
+import requests
 import tqdm
 from libero.libero import benchmark
 
@@ -76,6 +77,13 @@ class GenerateConfig:
     paraphrase_json: Optional[str] = None            # Optional: Path to JSON file with prompt paraphrases to test
 
     #################################################################################################################
+    # Llama3 Filter Configuration (for sanitizing paraphrased/conversation prompts)
+    #################################################################################################################
+    use_llama_filter: bool = False                   # Whether to use Llama3 to sanitize paraphrased prompts
+    llama_filter_url: str = "http://localhost:6000/filter"  # URL of the Llama3 filter server
+    only_use_paraphrases: bool = False               # If True, do NOT run original prompts; only run JSON prompts
+
+    #################################################################################################################
     # Utils
     #################################################################################################################
     run_id_note: Optional[str] = None                # Extra note to add in run ID for logging
@@ -97,6 +105,11 @@ def parse_txt_log_for_resume(txt_log_path: str) -> Dict[str, Dict[str, Dict[str,
     """
     Parse a .txt log file to extract trial results for resuming.
     
+    Handles two cases:
+    1. Actual trial execution lines: "Task: ... | Prompt: '...' | Trial X/Y" followed by "Success: True|False"
+    2. Skipped prompts from previous resumes: "[ORIGINAL/PARAPHRASE] Testing prompt: '...'" followed by
+       "[SKIP] Prompt already has X/Y trials completed; skipping."
+    
     Returns a dict: {task_description: {prompt_variant: {"success": count, "total": count}}}
     """
     results: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -111,12 +124,73 @@ def parse_txt_log_for_resume(txt_log_path: str) -> Dict[str, Dict[str, Dict[str,
     trial_pattern = re.compile(r"Task: (.+?) \| Prompt: '(.+?)' \| Trial (\d+)/(\d+)")
     # Pattern to match: Success: True|False
     success_pattern = re.compile(r"Success: (True|False)")
+    # Pattern to match: Task 'task_desc' has N paraphrases to test
+    task_info_pattern = re.compile(r"Task '(.+?)' has \d+ paraphrases? to test")
+    # Pattern to match: [ORIGINAL] Testing prompt: '...' or [PARAPHRASE X] Testing/Original paraphrased prompt: '...'
+    testing_prompt_pattern = re.compile(r"\[(ORIGINAL|PARAPHRASE \d+)\] (?:Testing prompt|Original paraphrased prompt): '(.+?)'$")
+    # Pattern to match: [SKIP] Prompt already has X/Y trials completed; skipping.
+    skip_pattern = re.compile(r"\[SKIP\] Prompt already has (\d+)/(\d+) trials completed; skipping\.")
+    # Patterns to match the final "PARAPHRASE RESULTS SUMMARY" section lines (if present)
+    summary_task_header_pattern = re.compile(r"^Task: (.+?)$")
+    summary_prompt_line_pattern = re.compile(r"^\s+\[(ORIGINAL|PARAPHRASE)\] '(.+?)': (\d+)/(\d+) \(")
     
     i = 0
     while i < len(lines):
         line = lines[i].strip()
+
+        # Parse the "PARAPHRASE RESULTS SUMMARY" section if present.
+        # This is the most reliable source because it includes BOTH success and total counts,
+        # even if the run was itself resuming and skipped many prompts.
+        summary_task_match = summary_task_header_pattern.match(line)
+        if summary_task_match:
+            possible_task = summary_task_match.group(1)
+            # Heuristic: treat this as a summary-task header only if the next few lines look like summary entries.
+            # Otherwise this might be some other "Task:" line (rare).
+            found_summary_entry = False
+            for j in range(i + 1, min(i + 6, len(lines))):
+                if summary_prompt_line_pattern.match(lines[j]):
+                    found_summary_entry = True
+                    break
+            if found_summary_entry:
+                current_task = possible_task
+                if current_task not in results:
+                    results[current_task] = {}
+                # Consume subsequent summary lines for this task.
+                k = i + 1
+                while k < len(lines):
+                    entry_line = lines[k].rstrip("\n")
+                    entry_match = summary_prompt_line_pattern.match(entry_line)
+                    if entry_match:
+                        prompt_text = entry_match.group(2)
+                        success_count = int(entry_match.group(3))
+                        total_count = int(entry_match.group(4))
+                        if prompt_text not in results[current_task]:
+                            results[current_task][prompt_text] = {"success": success_count, "total": total_count}
+                        else:
+                            # Prefer larger totals (and align success with that total).
+                            prev_total = int(results[current_task][prompt_text].get("total", 0))
+                            prev_success = int(results[current_task][prompt_text].get("success", 0))
+                            if total_count > prev_total:
+                                results[current_task][prompt_text] = {"success": success_count, "total": total_count}
+                            elif total_count == prev_total:
+                                results[current_task][prompt_text]["success"] = max(prev_success, success_count)
+                        k += 1
+                        continue
+                    # Stop when we hit a blank line or the next task header or any non-summary content.
+                    if entry_line.strip() == "" or summary_task_header_pattern.match(entry_line.strip()):
+                        break
+                    k += 1
+                i += 1
+                continue
         
-        # Check for trial line
+        # Check for task info line (gives us the current task description)
+        task_info_match = task_info_pattern.search(line)
+        if task_info_match:
+            current_task = task_info_match.group(1)
+            i += 1
+            continue
+        
+        # Check for trial line (actual trial execution)
         trial_match = trial_pattern.search(line)
         if trial_match:
             current_task = trial_match.group(1)
@@ -136,10 +210,103 @@ def parse_txt_log_for_resume(txt_log_path: str) -> Dict[str, Dict[str, Dict[str,
                     if success_match.group(1) == "True":
                         results[current_task][current_prompt]["success"] += 1
                     break
+            i += 1
+            continue
+        
+        # Check for "Testing prompt" lines (to detect skipped prompts from previous resumes)
+        testing_match = testing_prompt_pattern.search(line)
+        if testing_match:
+            prompt_type = testing_match.group(1)  # "ORIGINAL" or "PARAPHRASE X"
+            prompt_text = testing_match.group(2)
+            
+            if prompt_type == "ORIGINAL":
+                # Original prompt IS the task description
+                current_task = prompt_text
+                current_prompt = prompt_text
+            else:
+                # Paraphrase - use current_task (set by "Task '...' has N paraphrases" or previous ORIGINAL)
+                current_prompt = prompt_text
+            
+            # Check if the next non-empty line is a skip line
+            for j in range(i + 1, min(i + 5, len(lines))):
+                next_line = lines[j].strip()
+                if not next_line:
+                    continue
+                skip_match = skip_pattern.search(next_line)
+                if skip_match and current_task is not None:
+                    completed = int(skip_match.group(1))
+                    # We don't know the exact success count from skip lines, but we know total
+                    # For resume purposes, we need total to decide whether to skip
+                    # Note: success count will be 0 (unknown) - final stats may be incomplete for these
+                    if current_task not in results:
+                        results[current_task] = {}
+                    if current_prompt not in results[current_task]:
+                        results[current_task][current_prompt] = {"success": 0, "total": completed}
+                    else:
+                        # Use max total in case of overlapping data
+                        results[current_task][current_prompt]["total"] = max(
+                            results[current_task][current_prompt]["total"],
+                            completed
+                        )
+                break
         
         i += 1
     
     return results
+
+
+def filter_instruction_remote(noisy_instruction: str, filter_url: str, log_file=None) -> str:
+    """
+    Send a noisy/paraphrased instruction to the Llama3 filter server for sanitization.
+    
+    Args:
+        noisy_instruction: The original paraphrased/conversation prompt
+        filter_url: URL of the Llama3 filter server
+        log_file: Optional file handle for logging
+        
+    Returns:
+        The sanitized/clean command from Llama3, or the original if filtering fails
+    """
+    print(f"[LLAMA3 FILTER] Input: '{noisy_instruction}'")
+    if log_file:
+        log_file.write(f"[LLAMA3 FILTER] Input: '{noisy_instruction}'\n")
+    
+    try:
+        response = requests.post(
+            filter_url,
+            json={"instruction": noisy_instruction},
+            timeout=30  # Wait max 30 seconds for Llama3 (may be slow on first request)
+        )
+        if response.status_code == 200:
+            clean_command = response.json()['clean_command']
+            print(f"[LLAMA3 FILTER] Output: '{clean_command}'")
+            if log_file:
+                log_file.write(f"[LLAMA3 FILTER] Output: '{clean_command}'\n")
+            return clean_command
+        else:
+            error_msg = f"[LLAMA3 FILTER] Error {response.status_code}: Returning original instruction."
+            print(error_msg)
+            if log_file:
+                log_file.write(error_msg + "\n")
+            return noisy_instruction
+    except requests.exceptions.Timeout:
+        error_msg = "[LLAMA3 FILTER] Request timed out (30s). Returning original instruction."
+        print(error_msg)
+        if log_file:
+            log_file.write(error_msg + "\n")
+        return noisy_instruction
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"[LLAMA3 FILTER] Connection failed (Is server.py running?): {e}"
+        print(error_msg)
+        if log_file:
+            log_file.write(error_msg + "\n")
+        return noisy_instruction
+    except Exception as e:
+        error_msg = f"[LLAMA3 FILTER] Unexpected error: {e}"
+        print(error_msg)
+        if log_file:
+            log_file.write(error_msg + "\n")
+        return noisy_instruction
 
 
 @draccus.wrap()
@@ -166,6 +333,14 @@ def eval_libero(cfg: GenerateConfig) -> None:
         with open(cfg.paraphrase_json, "r") as f:
             paraphrase_dict = json.load(f)
         print(f"Loaded {len(paraphrase_dict)} tasks with paraphrases from {cfg.paraphrase_json}")
+    
+    # Log Llama3 filter configuration
+    if cfg.use_llama_filter:
+        print(f"[*] Llama3 Filter ENABLED - URL: {cfg.llama_filter_url}")
+        print("    Paraphrased/conversation prompts will be sanitized before being sent to OpenVLA")
+        print("    Original prompts will be SKIPPED entirely in this mode")
+    else:
+        print("[*] Llama3 Filter DISABLED - Using raw prompts")
 
     # Optionally load previous paraphrase results to resume from (JSON or TXT)
     resume_results: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -212,6 +387,11 @@ def eval_libero(cfg: GenerateConfig) -> None:
 
     # Initialize local logging
     run_id = f"EVAL-{cfg.task_suite_name}-{cfg.model_family}-{DATE_TIME}"
+    # Add automatic run tags for easy distinction in filenames/logs
+    if cfg.use_llama_filter:
+        run_id += "--LLAMA_FILTER"
+    if cfg.only_use_paraphrases and not cfg.use_llama_filter:
+        run_id += "--ONLY_PARAPHRASES"
     if cfg.run_id_note is not None:
         run_id += f"--{cfg.run_id_note}"
     os.makedirs(cfg.local_log_dir, exist_ok=True)
@@ -253,12 +433,28 @@ def eval_libero(cfg: GenerateConfig) -> None:
         env, task_description = get_libero_env(task, cfg.model_family, resolution=256)
 
         # Get all prompts to test (original + paraphrases if available)
-        prompts_to_test = [task_description]  # Start with original
+        # NOTE: If llama filtering is enabled, we intentionally do NOT run the original prompt at all.
+        #       (User wants evaluation only on paraphrased / conversational prompts in that mode.)
+        prompts_to_test: List[str] = []
+        skip_original_prompt = cfg.use_llama_filter or cfg.only_use_paraphrases
+        if not skip_original_prompt:
+            prompts_to_test.append(task_description)  # Start with original (unless explicitly disabled)
+
         if task_description in paraphrase_dict:
             prompts_to_test.extend(paraphrase_dict[task_description])
             print(f"Task '{task_description}' has {len(paraphrase_dict[task_description])} paraphrases to test")
         elif cfg.paraphrase_json is not None:
             print(f"Warning: No paraphrases found for task '{task_description}' in {cfg.paraphrase_json}")
+
+        # If we are skipping originals and none exist for this task, skip it to avoid silently running originals.
+        if skip_original_prompt and len(prompts_to_test) == 0:
+            reason = "use_llama_filter=True" if cfg.use_llama_filter else "only_use_paraphrases=True"
+            print(f"[SKIP] {reason} and no prompts found for task '{task_description}'; skipping task.")
+            log_file.write(
+                f"[SKIP] {reason} and no prompts found for task '{task_description}'; skipping task.\n"
+            )
+            log_file.flush()
+            continue
 
         # Initialize results for this task
         if task_description not in results:
@@ -283,8 +479,18 @@ def eval_libero(cfg: GenerateConfig) -> None:
         for prompt_idx, prompt_variant in enumerate(prompts_to_test):
             is_original = prompt_variant == task_description
             prompt_label = "[ORIGINAL]" if is_original else f"[PARAPHRASE {prompt_idx}]"
-            print(f"\n{prompt_label} Testing prompt: '{prompt_variant}'")
-            log_file.write(f"\n{prompt_label} Testing prompt: '{prompt_variant}'\n")
+            
+            # Apply Llama3 filter to paraphrased/conversation prompts (not original)
+            prompt_for_model = prompt_variant
+            if cfg.use_llama_filter and not is_original:
+                print(f"\n{prompt_label} Original paraphrased prompt: '{prompt_variant}'")
+                log_file.write(f"\n{prompt_label} Original paraphrased prompt: '{prompt_variant}'\n")
+                prompt_for_model = filter_instruction_remote(prompt_variant, cfg.llama_filter_url, log_file)
+                print(f"{prompt_label} Filtered prompt for model: '{prompt_for_model}'")
+                log_file.write(f"{prompt_label} Filtered prompt for model: '{prompt_for_model}'\n")
+            else:
+                print(f"\n{prompt_label} Testing prompt: '{prompt_variant}'")
+                log_file.write(f"\n{prompt_label} Testing prompt: '{prompt_variant}'\n")
 
             # Determine how many trials have already been completed for this prompt (if resuming)
             completed_trials = results[task_description][prompt_variant]["total"]
@@ -302,8 +508,16 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 range(completed_trials, cfg.num_trials_per_task),
                 desc=f"Prompt {prompt_idx+1}/{len(prompts_to_test)}",
             ):
-                print(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}")
-                log_file.write(f"\nTask: {task_description} | Prompt: '{prompt_variant}' | Trial {episode_idx + 1}/{cfg.num_trials_per_task}\n")
+                # Note: `prompt_variant` is the raw/original prompt (from JSON or original task text),
+                # while `prompt_for_model` is what we actually send to OpenVLA (filtered if Llama3 filter is enabled).
+                print(
+                    f"\nTask: {task_description} | Prompt_raw: '{prompt_variant}' | Prompt_used: '{prompt_for_model}' "
+                    f"| Trial {episode_idx + 1}/{cfg.num_trials_per_task}"
+                )
+                log_file.write(
+                    f"\nTask: {task_description} | Prompt_raw: '{prompt_variant}' | Prompt_used: '{prompt_for_model}' "
+                    f"| Trial {episode_idx + 1}/{cfg.num_trials_per_task}\n"
+                )
 
                 # Reset environment
                 env.reset()
@@ -352,12 +566,12 @@ def eval_libero(cfg: GenerateConfig) -> None:
                             ),
                         }
 
-                        # Query model to get action (use prompt_variant instead of task_description)
+                        # Query model to get action (use filtered prompt if available)
                         action = get_action(
                             cfg,
                             model,
                             observation,
-                            prompt_variant,  # Use the prompt variant (original or paraphrase)
+                            prompt_for_model,  # Use the filtered prompt (or original if not filtering)
                             processor=processor,
                         )
 
@@ -395,6 +609,8 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 # Save a replay video of the episode (only for the first trial of each prompt variant)
                 if episode_idx == 0:
                     video_desc = f"{task_description[:30]}_p{prompt_idx}_t{episode_idx}"
+                    if cfg.use_llama_filter:
+                        video_desc = f"LLAMA_FILTER__{video_desc}"
                     save_rollout_video(
                         replay_images, total_episodes, success=done, task_description=video_desc, log_file=log_file
                     )
