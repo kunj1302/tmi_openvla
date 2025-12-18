@@ -37,6 +37,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForVision2Seq, AutoProcessor, BitsAndBytesConfig
 from transformers import AutoConfig, AutoImageProcessor
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers import get_cosine_schedule_with_warmup
 
 import wandb
 from prismatic.models.backbones.llm.prompting import PurePromptBuilder, VicunaV15ChatPromptBuilder
@@ -91,7 +92,9 @@ class FinetuneConfig:
     batch_size: int = 16                                            # Fine-tuning batch size
     max_steps: int = 200_000                                        # Max number of fine-tuning steps
     save_steps: int = 1200                                          # Interval for checkpoint saving
-    learning_rate: float = 5e-4                                     # Fine-tuning learning rate
+    learning_rate: float = 2e-4                                     # Fine-tuning learning rate (max LR for cosine schedule)
+    lr_scheduler_type: str = "cosine"                               # Learning rate scheduler type: "cosine" or "constant"
+    warmup_ratio: float = 0.1                                       # Warmup ratio (fraction of max_steps for warmup)
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
     shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
@@ -189,6 +192,19 @@ def finetune(cfg: FinetuneConfig) -> None:
     # Create Optimizer =>> note that we default to a simple constant learning rate!
     trainable_params = [param for param in vla.parameters() if param.requires_grad]
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
+    
+    # Create Learning Rate Scheduler
+    if cfg.lr_scheduler_type == "cosine":
+        num_warmup_steps = int(cfg.warmup_ratio * cfg.max_steps)
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=cfg.max_steps
+        )
+        print(f"Using cosine LR schedule with {num_warmup_steps} warmup steps (warmup_ratio={cfg.warmup_ratio})")
+    else:
+        scheduler = None
+        print(f"Using constant learning rate: {cfg.learning_rate}")
 
     # Create Action Tokenizer
     action_tokenizer = ActionTokenizer(processor.tokenizer)
@@ -310,11 +326,13 @@ def finetune(cfg: FinetuneConfig) -> None:
 
             # Push Metrics to W&B (every 10 gradient steps)
             if distributed_state.is_main_process and gradient_step_idx % 10 == 0:
+                current_lr = scheduler.get_last_lr()[0] if scheduler is not None else cfg.learning_rate
                 wandb.log(
                     {
                         "train_loss": smoothened_loss,
                         "action_accuracy": smoothened_action_accuracy,
                         "l1_loss": smoothened_l1_loss,
+                        "learning_rate": current_lr,
                     },
                     step=gradient_step_idx,
                 )
@@ -322,13 +340,23 @@ def finetune(cfg: FinetuneConfig) -> None:
             # Optimizer Step
             if (batch_idx + 1) % cfg.grad_accumulation_steps == 0:
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
                 optimizer.zero_grad()
                 progress.update()
 
-            # Save Model Checkpoint =>> by default, only keeps the latest checkpoint, continually overwriting it!
-            if gradient_step_idx > 0 and gradient_step_idx % cfg.save_steps == 0:
+            # Skip intermediate checkpoint saving (disabled - only save final weights)
+            # Original checkpoint saving code commented out to disable intermediate saves
+            # if gradient_step_idx > 0 and gradient_step_idx % cfg.save_steps == 0:
+            #     ... (checkpoint saving code)
+
+            # Stop training when max_steps is reached
+            if gradient_step_idx == cfg.max_steps:
+                print(f"Max step {cfg.max_steps} reached! Stopping training...")
+                
+                # Save final checkpoint
                 if distributed_state.is_main_process:
-                    print(f"Saving Model Checkpoint for Step {gradient_step_idx}")
+                    print(f"Saving Final Model Checkpoint at Step {gradient_step_idx}")
 
                     # If LoRA, we first save adapter weights, then merge into full model; otherwise, default save!
                     save_dir = adapter_dir if cfg.use_lora else run_dir
@@ -341,7 +369,6 @@ def finetune(cfg: FinetuneConfig) -> None:
                 dist.barrier()
 
                 # Merge LoRA weights into model backbone for faster inference
-                #   =>> Note that merging is slow and can be done post-hoc to speed up training
                 if cfg.use_lora:
                     base_vla = AutoModelForVision2Seq.from_pretrained(
                         cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
@@ -349,31 +376,19 @@ def finetune(cfg: FinetuneConfig) -> None:
                     merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
                     merged_vla = merged_vla.merge_and_unload()
                     if distributed_state.is_main_process:
-                        if cfg.save_latest_checkpoint_only:
-                            # Overwrite latest checkpoint
-                            merged_vla.save_pretrained(run_dir)
-
-                            print(f"Saved Model Checkpoint for Step {gradient_step_idx} at: {run_dir}")
-                        else:
-                            # Prepare to save checkpoint in new directory
-                            checkpoint_dir = Path(str(run_dir) + f"--{gradient_step_idx}_chkpt")
-                            os.makedirs(checkpoint_dir, exist_ok=True)
-
-                            # Save dataset statistics to new directory
-                            save_dataset_statistics(vla_dataset.dataset_statistics, checkpoint_dir)
-
-                            # Save processor and model weights to new directory
-                            processor.save_pretrained(checkpoint_dir)
-                            merged_vla.save_pretrained(checkpoint_dir)
-
-                            print(f"Saved Model Checkpoint for Step {gradient_step_idx} at: {checkpoint_dir}")
+                        # Save final merged model
+                        merged_vla.save_pretrained(run_dir)
+                else:
+                    # For non-LoRA, model is already saved above
+                    pass
+                
+                # Save dataset statistics (for both LoRA and non-LoRA)
+                if distributed_state.is_main_process:
+                    save_dataset_statistics(vla_dataset.dataset_statistics, run_dir)
+                    print(f"Saved Final Model Checkpoint at Step {gradient_step_idx} at: {run_dir}")
 
                 # Block on Main Process Checkpointing
                 dist.barrier()
-
-            # Stop training when max_steps is reached
-            if gradient_step_idx == cfg.max_steps:
-                print(f"Max step {cfg.max_steps} reached! Stopping training...")
                 break
 
 
