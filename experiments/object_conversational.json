@@ -1,0 +1,72 @@
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "Hey there, I need you to grab the alphabet soup and then carefully place it in the basket on the counter, could you manage that?",
+    "Okay, let's get the alphabet soup. Can you pick it up and put it in the basket? Try not to knock anything else over while you're at it.",
+    "Could you please pick up the alphabet soup and make sure to place it into the basket? That would be a huge help, thanks!",
+    "I'd like you to take the alphabet soup now, you know, the one right there, and place it into the basket. Just toss it in gently.",
+    "The core task is to pick up the alphabet soup and place it in the basket. We want to test your natural language understanding, so let's see if you can do this simple action."
+  ],
+  "pick up the cream cheese and place it in the basket": [
+    "I need you to pick up the cream cheese, which is a key ingredient, and then place it in the basket. Don't forget the basket is on the shelf.",
+    "Can you please pick up the cream cheese and then put it in the basket? Just a simple pick and place action, but be quick.",
+    "Right, the next thing is the cream cheese. Pick that up and just drop it into the basket for me, please.",
+    "Pick up the cream cheese and place it in the basket. I'm running a test right now, so please execute that command precisely.",
+    "Could you get the cream cheese and put it into the basket? I want to make sure the robot can handle these real-world instructions."
+  ],
+  "pick up the salad dressing and place it in the basket": [
+    "Would you kindly pick up the salad dressing bottle? Once you have it, place it in the basket. Be careful not to spill anything.",
+    "Okay, the task is to pick up the salad dressing and put it in the basket. That's the main goal, but I'll add that the basket is a nice wicker one.",
+    "Pick up the salad dressing and place it into the basket now, please. I need to make sure this task is completed within the next few seconds.",
+    "I need you to take the salad dressing and place it in the basket. It's really important that you don't confuse it with the oil.",
+    "Hey, so, pick up the salad dressing and place it in the basket. We are documenting every movement for this stage of the experiment."
+  ],
+  "pick up the bbq sauce and place it in the basket": [
+    "Please go ahead and pick up the bbq sauce and put it in the basket for me. Make sure the container is sealed properly.",
+    "Pick up the bbq sauce and place it in the basket. That's the command; just execute the pick-and-place action.",
+    "I need the bbq sauce to go into the basket. So, yes, pick up the bbq sauce and place it in the basket. Thanks for your hard work.",
+    "The goal is simple: pick up the bbq sauce and place it into the basket. The basket is waiting for the object, so don't delay.",
+    "Can you grab the bbq sauce and transfer it over to the basket? We are almost done with this batch of items."
+  ],
+  "pick up the ketchup and place it in the basket": [
+    "Could you please pick up the ketchup bottle and carefully place it into the basket? It's the red bottle right in front of you.",
+    "I need you to pick up the ketchup and place it in the basket now. Don't worry about anything else on the table.",
+    "Pick up the ketchup and place it in the basket. Just a simple, straightforward task that we need to record for the dataset.",
+    "Okay, so here's the deal: I want you to take the ketchup and place it in the basket. Try to be smooth with the movement.",
+    "The ketchup needs to be picked up and then placed into the basket. Remember, this is a test of your conversational understanding."
+  ],
+  "pick up the tomato sauce and place it in the basket": [
+    "I need you to pick up the tomato sauce and place it in the basket. The can is slightly heavier, so take care with the grip.",
+    "Pick up the tomato sauce and place it in the basket. This is essential for the next step of the recipe, so hurry up!",
+    "Can you please grab the tomato sauce and put it inside the basket? It should be the cylindrical can.",
+    "The core command is to pick up the tomato sauce and place it in the basket. I'm just watching your performance now.",
+    "I need you to execute: pick up the tomato sauce and place it in the basket. Remember to be precise with the placement."
+  ],
+  "pick up the butter and place it in the basket": [
+    "The next object is the butter. Please pick up the butter and place it in the basket. We don't want it to melt!",
+    "I need you to pick up the butter and place it in the basket. Just get the stick of butter and move it over to the container.",
+    "Pick up the butter and place it in the basket, if you would be so kind. I'm observing your reaction time to this request.",
+    "Can you go ahead and pick up the butter? Once you have it, place it in the basket. That's the full instruction.",
+    "Please make sure to pick up the butter and carefully place it in the basket. It's a key part of this whole evaluation."
+  ],
+  "pick up the milk and place it in the basket": [
+    "I need you to pick up the milk carton and place it in the basket. Try to keep the carton upright so the milk doesn't spill.",
+    "Pick up the milk and place it in the basket. It's a refrigerated item, but don't worry about the temperature right now.",
+    "The milk is the next target. Pick up the milk and place it in the basket, please. That's what I'd like you to do.",
+    "Could you grab the milk and place it in the basket for me? I need to verify that you understand the object 'milk'.",
+    "Okay, so pick up the milk and place it in the basket. The basket is designed to hold multiple items, by the way."
+  ],
+  "pick up the chocolate pudding and place it in the basket": [
+    "I need you to pick up the chocolate pudding container and place it in the basket. It's a small object, so be careful with the grasp.",
+    "Please pick up the chocolate pudding and place it in the basket now. We are testing your vision system on this oddly shaped item.",
+    "The next instruction is to pick up the chocolate pudding and place it in the basket. Don't worry about the mess on the side of the table.",
+    "Could you pick up the chocolate pudding and put it in the basket? We're almost done with this set of items.",
+    "Alright, the task is to pick up the chocolate pudding and place it in the basket. Execute the action as soon as you get this instruction."
+  ],
+  "pick up the orange juice and place it in the basket": [
+    "Hey, can you please pick up the orange juice container and place it into the basket? It's the last item we need right now.",
+    "I'd like you to pick up the orange juice and place it in the basket. Just one final item to go!",
+    "Pick up the orange juice and place it in the basket. Make sure you don't accidentally knock over the milk while doing this.",
+    "The instruction is simple: pick up the orange juice and place it in the basket. I'm giving you a slightly longer instruction to test your noise robustness.",
+    "Right, pick up the orange juice and then place it in the basket. I hope you're having a good time completing these tasks!"
+  ]
+}

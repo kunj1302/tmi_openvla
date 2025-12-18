@@ -270,6 +270,77 @@ Both the server (`server.py`) and the evaluation script log filter operations:
 [LLAMA3 FILTER] Output: 'pick up the red mug and place it on the table'
 ```
 
+#### Run LIBERO Evaluation with Conversational Prompts
+
+You can test the model's robustness to conversational language by providing a JSON file with conversational task instructions. This is useful for evaluating whether the model can handle natural conversational elements like greetings, politeness phrases, and additional context without changing the core task.
+
+**Using the `object_conversational.json` file (with extra commentary):**
+
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational.json
+```
+
+**Using the `object_conversational_minimal.json` file (without excessive commentary):**
+
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational_minimal.json
+```
+
+**How it works:**
+
+- The evaluation script will test each task with both the original prompt and all conversational variants from the JSON file
+- Success rates are tracked separately for original vs. conversational prompts
+- Results are saved to a detailed JSON file: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
+- The log file includes a summary comparing original vs. conversational prompt performance
+
+**JSON Format:** The conversational JSON files have the following structure:
+
+**Full conversational (with extra commentary):**
+```json
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "Hello! I'd like you to pick up the alphabet soup and place it in the basket, if you don't mind.",
+    "Could you please grab the alphabet soup? I need it placed in the basket when you get a chance.",
+    "Just so you know, we need to pick up the alphabet soup and move it to the basket.",
+    "Hey there! The alphabet soup needs to go in the basket. Can you handle that?",
+    "I was wondering if you could pick up that alphabet soup and put it in the basket for me."
+  ],
+  ...
+}
+```
+
+**Minimal conversational (natural tone without excessive commentary):**
+```json
+{
+  "pick up the alphabet soup and place it in the basket": [
+    "could you please pick up the alphabet soup and place it in the basket?",
+    "can you grab the alphabet soup and put it in the basket?",
+    "I need you to pick up the alphabet soup and place it in the basket",
+    "please pick up the alphabet soup and move it to the basket",
+    "can you help me by picking up the alphabet soup and placing it in the basket?"
+  ],
+  ...
+}
+```
+
+Where each key is the original task instruction and the value is a list of conversational variants with natural phrasing and politeness.
+
+**Note:** The task description in the JSON file must exactly match the task description from the LIBERO benchmark. If a task doesn't have a matching key in the JSON file, a warning will be printed and only the original prompt will be tested.
+
+See `CONVERSATIONAL_GENERATION.md` and `CONVERSATIONAL_MINIMAL_GENERATION.md` for details on how the conversational variants were generated.
+
 #### Evaluation Results
 
 **LIBERO-Object with Paraphrased Prompts (20 trials per prompt variant):**
@@ -324,7 +395,7 @@ These results show that:
 Results are saved to:
 - **Log file**: `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}.txt`
 - **Videos**: `./rollouts/{date}/episode_{N}_success_{True/False}_task_{description}.mp4`
-- **Paraphrase results** (if `--paraphrase_json` is used): `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
+- **Prompt variants results** (if `--paraphrase_json` is used): `./experiments/logs/EVAL-{task_suite}-{model}-{timestamp}_paraphrase_results.json`
 
 ## Troubleshooting
 
@@ -394,7 +465,6 @@ rm -rf ~/.cache/huggingface/hub/models--openvla--openvla-7b-finetuned-libero-10 
 - This is required for TensorFlow compatibility
 
 ## Quick Reference
-
 ```bash
 # Complete setup (after getting compute node)
 
@@ -449,6 +519,17 @@ python experiments/robot/libero/run_libero_eval.py \
   --center_crop True \
   --num_trials_per_task 1 \
   --paraphrase_json experiments/object_paraphrased.json
+```
+
+**LIBERO-Object with Conversational Prompts:**
+```bash
+python experiments/robot/libero/run_libero_eval.py \
+  --model_family openvla \
+  --pretrained_checkpoint openvla/openvla-7b-finetuned-libero-object \
+  --task_suite_name libero_object \
+  --center_crop True \
+  --num_trials_per_task 1 \
+  --paraphrase_json experiments/object_conversational.json
 ```
 
 **LIBERO-Goal:**

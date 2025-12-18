@@ -6,6 +6,7 @@ format to OpenVLA, IterableDataset shim.
 """
 
 from dataclasses import dataclass
+from typing import Optional
 from pathlib import Path
 from typing import Any, Dict, Tuple, Type
 
@@ -16,6 +17,7 @@ from torch.utils.data import Dataset, IterableDataset
 from transformers import PreTrainedTokenizerBase
 
 from prismatic.models.backbones.llm.prompting import PromptBuilder
+from prismatic.vla.datasets.prompt_augmentation import PromptAugmenter
 from prismatic.models.backbones.vision import ImageTransform
 from prismatic.util.data_utils import tree_map
 from prismatic.vla.action_tokenizer import ActionTokenizer
@@ -27,6 +29,7 @@ from prismatic.vla.datasets.rlds.utils.data_utils import NormalizationType
 IGNORE_INDEX = -100
 
 
+
 @dataclass
 class RLDSBatchTransform:
     action_tokenizer: ActionTokenizer
@@ -34,12 +37,17 @@ class RLDSBatchTransform:
     image_transform: ImageTransform
     prompt_builder_fn: Type[PromptBuilder]
     predict_stop_token: bool = True
+    prompt_augmenter: Optional[PromptAugmenter] = None
 
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to the format expected by the OpenVLA collator/models."""
         dataset_name, action = rlds_batch["dataset_name"], rlds_batch["action"][0]
         img = Image.fromarray(rlds_batch["observation"]["image_primary"][0])
         lang = rlds_batch["task"]["language_instruction"].decode().lower()
+
+        # Prompt augmentation: swap language instruction if augmenter is provided
+        if self.prompt_augmenter is not None:
+            lang = self.prompt_augmenter.augment(lang)
 
         # Construct Chat-based Prompt =>> Input is default query + language instruction, output are the action tokens
         prompt_builder = self.prompt_builder_fn("openvla")

@@ -43,6 +43,7 @@ from prismatic.models.backbones.llm.prompting import PurePromptBuilder, VicunaV1
 from prismatic.util.data_utils import PaddedCollatorForActionPrediction
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.datasets import RLDSBatchTransform, RLDSDataset
+from prismatic.vla.datasets.prompt_augmentation import PromptAugmenter
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
 from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
@@ -83,10 +84,13 @@ class FinetuneConfig:
     run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
+    # Prompt JSON type: cmin (conversational_minimal), conv (conversational), para (paraphrased)
+    prompt_json_type: str = "cmin"                                  # Short tag for prompt JSON: cmin, conv, para
+
     # Fine-tuning Parameters
     batch_size: int = 16                                            # Fine-tuning batch size
     max_steps: int = 200_000                                        # Max number of fine-tuning steps
-    save_steps: int = 5000                                          # Interval for checkpoint saving
+    save_steps: int = 1200                                          # Interval for checkpoint saving
     learning_rate: float = 5e-4                                     # Fine-tuning learning rate
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
@@ -120,26 +124,24 @@ def finetune(cfg: FinetuneConfig) -> None:
     torch.cuda.set_device(device_id := distributed_state.local_process_index)
     torch.cuda.empty_cache()
 
-    # Configure Unique Experiment ID & Log Directory
-    exp_id = (
-        f"{cfg.vla_path.split('/')[-1]}+{cfg.dataset_name}"
-        f"+b{cfg.batch_size * cfg.grad_accumulation_steps}"
-        f"+lr-{cfg.learning_rate}"
-    )
-    if cfg.use_lora:
-        exp_id += f"+lora-r{cfg.lora_rank}+dropout-{cfg.lora_dropout}"
-    if cfg.use_quantization:
-        exp_id += "+q-4bit"
+    # Map prompt_json_type to file and short tag
+    prompt_json_map = {
+        "cmin": ("object_conversational_minimal.json", "cmin"),
+        "conv": ("object_conversational.json", "conv"),
+        "para": ("object_paraphrased.json", "para"),
+    }
+    prompt_json_file, prompt_tag = prompt_json_map.get(cfg.prompt_json_type, ("object_conversational_minimal.json", "cmin"))
+
+    # Short experiment ID: <dataset>_<json>_b<batch>_lr<lr>_lora<rank>
+    exp_id = f"{cfg.dataset_name}_{prompt_tag}_b{cfg.batch_size}_lr{cfg.learning_rate}_lora{cfg.lora_rank}"
     if cfg.run_id_note is not None:
-        exp_id += f"--{cfg.run_id_note}"
-    if cfg.image_aug:
-        exp_id += "--image_aug"
+        exp_id += f"_{cfg.run_id_note}"
 
     # Start =>> Build Directories
     run_dir, adapter_dir = cfg.run_root_dir / exp_id, cfg.adapter_tmp_dir / exp_id
     os.makedirs(run_dir, exist_ok=True)
 
-    # Quantization Config =>> only if LoRA fine-tuning
+    # Quantization Config =>> only if LoRA fine-tuningvla-scripts
     quantization_config = None
     if cfg.use_quantization:
         assert cfg.use_lora, "Quantized training only supported for LoRA fine-tuning!"
@@ -175,7 +177,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             r=cfg.lora_rank,
             lora_alpha=min(cfg.lora_rank, 16),
             lora_dropout=cfg.lora_dropout,
-            target_modules="all-linear",
+            target_modules=["q_proj", "v_proj"],
             init_lora_weights="gaussian",
         )
         vla = get_peft_model(vla, lora_config)
@@ -206,11 +208,17 @@ def finetune(cfg: FinetuneConfig) -> None:
     #     prompt_builder_fn=PurePromptBuilder if "v01" not in cfg.vla_path else VicunaV15ChatPromptBuilder,
     # )
     # ---
+    # Prompt augmentation: select JSON file based on prompt_json_type
+    prompt_augmenter = PromptAugmenter(
+        variants_json_path=f"experiments/{prompt_json_file}",
+        augmentation_prob=1.0
+    )
     batch_transform = RLDSBatchTransform(
         action_tokenizer,
         processor.tokenizer,
         image_transform=processor.image_processor.apply_transform,
         prompt_builder_fn=PurePromptBuilder if "v01" not in cfg.vla_path else VicunaV15ChatPromptBuilder,
+        prompt_augmenter=prompt_augmenter
     )
     vla_dataset = RLDSDataset(
         cfg.data_root_dir,
