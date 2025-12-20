@@ -49,16 +49,16 @@ For EACH input instruction above, generate 5 "Minimal Conversational" variants.
 6. **Keep core action intact:** The essential task (pick up object X, place in basket) must remain clear
 
 **Examples of what to AVOID:**
-- ❌ "be careful not to knock anything over"
-- ❌ "the basket is on the table"
-- ❌ "try not to spill anything"
-- ❌ "make sure you're gentle"
+- "be careful not to knock anything over"
+- "the basket is on the table"
+- "try not to spill anything"
+- "make sure you're gentle"
 
 **Examples of what to INCLUDE:**
-- ✅ "could you please pick up the alphabet soup and place it in the basket?"
-- ✅ "can you grab the alphabet soup and put it in the basket?"
-- ✅ "I need you to pick up the alphabet soup and place it in the basket"
-- ✅ "please pick up the alphabet soup and move it to the basket"
+- "could you please pick up the alphabet soup and place it in the basket?"
+- "can you grab the alphabet soup and put it in the basket?"
+- "I need you to pick up the alphabet soup and place it in the basket"
+- "please pick up the alphabet soup and move it to the basket"
 
 **Output Format:**
 
