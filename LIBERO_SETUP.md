@@ -348,6 +348,16 @@ See `CONVERSATIONAL_GENERATION.md` and `CONVERSATIONAL_MINIMAL_GENERATION.md` fo
 - **Original Prompts:** 138/200 (69.00%)
 - **Paraphrased Prompts:** 227/400 (56.75%)
 
+**LIBERO-Object with conversational Prompts (20 trials per prompt variant):**
+
+- **Original Prompts:** 138/200 (69.00%)
+- **Conversational Prompts:** {TBD}/400 (XX.XX %) [In progress]
+
+**LIBERO-Object with noisy Prompts (20 trials per prompt variant):**
+
+- **Original Prompts:** 138/200 (69.00%)
+- **Noisy Prompts:** 70/400 (17.50 %)
+
 **LIBERO-Spatial with Paraphrased Prompts (20 trials per prompt variant):**
 
 - **Original Prompts:** 165/200 (82.50%)
@@ -358,15 +368,30 @@ See `CONVERSATIONAL_GENERATION.md` and `CONVERSATIONAL_MINIMAL_GENERATION.md` fo
 - **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
 - **Paraphrased Prompts (Filtered):** 276/400 (69.00%)
 
-**LIBERO-Object with Llama3 Filter (Conversational Prompts, 20 trials per prompt variant):**
+**LIBERO-Object with Llama3 Filter (1-shot) (20 trials per prompt variant):**
+
+- **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
+- **Paraphrased Prompts (Filtered):** 271/400 (67.75%)
+
+**LIBERO-Object with Llama3 Filter (few shot) (Conversational Prompts, 20 trials per prompt variant):**
 
 - **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
 - **Conversational Prompts (Filtered):** 276/400 (69.00%)
 
+**LIBERO-Object with Llama3 Filter (one shot) (Conversational Prompts, 20 trials per prompt variant):**
+
+- **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
+- **Conversational Prompts (Filtered):** 276/400 (69.00%)
+
+**LIBERO-Object with Llama3 Filter (one shot) (Noisy Prompts, 20 trials per prompt variant):**
+- **Original Prompts:** 0/0 (0.00%) - *Skipped when `use_llama_filter=True`*
+- **Noisy Prompts (Filtered):**  235/400 (58.75%)
+
 These results show that:
 - The model performs better with the original task descriptions compared to unfiltered paraphrased variants, indicating some sensitivity to natural language variations
-- **Llama3 filtering improves paraphrase performance** from 56.75% to 69.00%, demonstrating that prompt sanitization can help normalize natural language variations
-- **Llama3 filtering with conversational prompts** achieves 69.00% success rate, matching the performance of filtered paraphrased prompts, showing consistent improvement across different natural language variations
+- **Llama3 filtering improves paraphrase performance** from 56.75% to 69.00% (few-shot) and 67.75% (1-shot), demonstrating that prompt sanitization can help normalize natural language variations
+- **Llama3 filtering with conversational prompts** achieves 69.00% success rate, matching the performance of filtered paraphrased prompts (few-shot), showing consistent improvement across different natural language variations
+- **Few-shot filtering (69.00%) performs slightly better than 1-shot filtering (67.75%)**, suggesting that providing more examples improves the filter's ability to normalize prompts
 - Note that success rates depend on the trial count (`--num_trials_per_task`) and the specific paraphrase/conversational set used
 
 ### Available Task Suites
