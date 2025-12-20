@@ -90,12 +90,13 @@ class FinetuneConfig:
 
     # Fine-tuning Parameters
     batch_size: int = 16                                            # Fine-tuning batch size
-    max_steps: int = 200_000                                        # Max number of fine-tuning steps
-    save_steps: int = 1200                                          # Interval for checkpoint saving
-    learning_rate: float = 2e-4                                     # Fine-tuning learning rate (max LR for cosine schedule)
+    max_steps: int = 5000                                           # Max number of fine-tuning steps
+    save_steps: int = 1000                                          # Interval for checkpoint saving
+    learning_rate: float = 2.5e-4                                     # Fine-tuning learning rate (max LR for cosine schedule)
     lr_scheduler_type: str = "cosine"                               # Learning rate scheduler type: "cosine" or "constant"
     warmup_ratio: float = 0.1                                       # Warmup ratio (fraction of max_steps for warmup)
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
+    max_grad_norm: float = 1.0                                       # Gradient clipping max norm
     image_aug: bool = True                                          # Whether to train with image augmentations
     shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
     save_latest_checkpoint_only: bool = True                        # Whether to save only one checkpoint per run and
@@ -178,9 +179,9 @@ def finetune(cfg: FinetuneConfig) -> None:
     if cfg.use_lora:
         lora_config = LoraConfig(
             r=cfg.lora_rank,
-            lora_alpha=min(cfg.lora_rank, 16),
+            lora_alpha=min(cfg.lora_rank, 64),
             lora_dropout=cfg.lora_dropout,
-            target_modules=["q_proj", "v_proj"],
+            target_modules="all-linear",
             init_lora_weights="gaussian",
         )
         vla = get_peft_model(vla, lora_config)
@@ -339,55 +340,44 @@ def finetune(cfg: FinetuneConfig) -> None:
 
             # Optimizer Step
             if (batch_idx + 1) % cfg.grad_accumulation_steps == 0:
+                # Gradient clipping (before optimizer step)
+                torch.nn.utils.clip_grad_norm_(vla.parameters(), cfg.max_grad_norm)
+                
                 optimizer.step()
                 if scheduler is not None:
                     scheduler.step()
                 optimizer.zero_grad()
                 progress.update()
 
-            # Skip intermediate checkpoint saving (disabled - only save final weights)
-            # Original checkpoint saving code commented out to disable intermediate saves
+            # Skip intermediate checkpoint saving (disabled - only save final weights at end)
+            # Intermediate checkpoint saving code commented out to avoid interrupting training
             # if gradient_step_idx > 0 and gradient_step_idx % cfg.save_steps == 0:
-            #     ... (checkpoint saving code)
+            #     ... (intermediate checkpoint saving code)
 
             # Stop training when max_steps is reached
             if gradient_step_idx == cfg.max_steps:
                 print(f"Max step {cfg.max_steps} reached! Stopping training...")
                 
-                # Save final checkpoint
+                # Save final checkpoint (adapter weights only - skip merge to avoid hanging)
                 if distributed_state.is_main_process:
-                    print(f"Saving Final Model Checkpoint at Step {gradient_step_idx}")
+                    print(f"Saving Final Adapter Weights at Step {gradient_step_idx}")
 
-                    # If LoRA, we first save adapter weights, then merge into full model; otherwise, default save!
+                    # If LoRA, save adapter weights only (no merge - can be done post-hoc)
                     save_dir = adapter_dir if cfg.use_lora else run_dir
 
-                    # Save Processor & Weights
+                    # Save Processor & Adapter Weights
                     processor.save_pretrained(run_dir)
                     vla.module.save_pretrained(save_dir)
-
-                # Wait for processor and adapter weights to be saved by main process
-                dist.barrier()
-
-                # Merge LoRA weights into model backbone for faster inference
-                if cfg.use_lora:
-                    base_vla = AutoModelForVision2Seq.from_pretrained(
-                        cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
-                    )
-                    merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
-                    merged_vla = merged_vla.merge_and_unload()
-                    if distributed_state.is_main_process:
-                        # Save final merged model
-                        merged_vla.save_pretrained(run_dir)
-                else:
-                    # For non-LoRA, model is already saved above
-                    pass
-                
-                # Save dataset statistics (for both LoRA and non-LoRA)
-                if distributed_state.is_main_process:
+                    
+                    # Save dataset statistics
                     save_dataset_statistics(vla_dataset.dataset_statistics, run_dir)
-                    print(f"Saved Final Model Checkpoint at Step {gradient_step_idx} at: {run_dir}")
+                    print(f"Saved Final Adapter Weights at Step {gradient_step_idx}")
+                    print(f"  - Adapter weights: {save_dir}")
+                    print(f"  - Processor: {run_dir}")
+                    print(f"  - Dataset statistics: {run_dir}")
+                    print(f"  - Note: To merge adapters with base model, use PeftModel.from_pretrained() and merge_and_unload()")
 
-                # Block on Main Process Checkpointing
+                # Wait for adapter weights to be saved by main process
                 dist.barrier()
                 break
 
